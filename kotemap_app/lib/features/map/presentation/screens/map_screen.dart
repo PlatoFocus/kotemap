@@ -181,10 +181,9 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       ),
       children: [
         TileLayer(
-          urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+          urlTemplate: 'https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
           userAgentPackageName: 'com.kotemap.app',
           maxNativeZoom: 19,
-          retinaMode: RetinaMode.isHighDensity(context),
         ),
 
         // Danger zone polygon
