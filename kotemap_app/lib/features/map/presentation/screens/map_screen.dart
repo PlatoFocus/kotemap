@@ -121,13 +121,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     ref.listen<bool>(
       mapProvider.select((s) => s.isNavigating),
       (prev, navigating) {
-        if (navigating) {
-          _followCamera = true;
-          final userLoc = ref.read(mapProvider).userLocation;
-          if (userLoc != null) {
-            _mapController.move(userLoc, 16);
-          }
-        } else {
+        if (!navigating) {
           _followCamera = false;
         }
       },
@@ -135,32 +129,32 @@ class _MapScreenState extends ConsumerState<MapScreen> {
 
     return Scaffold(
       backgroundColor: AppColors.background,
-      body: Column(
+      body: Stack(
         children: [
-          Expanded(
-            child: Stack(
-              children: [
-                _buildMap(state, stations),
+          // Map full screen
+          _buildMap(state, stations),
 
-                // Navigation overlay replaces the search bar while navigating
-                if (state.isNavigating)
-                  const NavigationOverlay()
-                else if (state.arrivedAtDestination)
-                  const ArrivalCard()
-                else
-                  _buildTopOverlay(),
+          // Navigation overlay replaces the search bar while navigating
+          if (state.isNavigating)
+            const NavigationOverlay()
+          else if (state.arrivedAtDestination)
+            const ArrivalCard()
+          else
+            _buildTopOverlay(),
 
-                // Zoom controls always visible
-                _buildMapControls(),
-              ],
-            ),
-          ),
+          // Zoom controls + recenter button
+          _buildMapControls(),
 
-          // Panneau bas : stations pour la destination OU itinéraires classiques
+          // Bottom sheet (itinerary or destination stations)
           if (!state.isNavigating && !state.arrivedAtDestination)
-            state.selectedPlace != null
-                ? const DestinationStationsSheet()
-                : const ItineraryBottomSheet(),
+            Positioned(
+              bottom: 0,
+              left: 0,
+              right: 0,
+              child: state.selectedPlace != null
+                  ? const DestinationStationsSheet()
+                  : const ItineraryBottomSheet(),
+            ),
         ],
       ),
     );
@@ -176,17 +170,24 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         initialZoom: 13.5,
         minZoom: 10,
         maxZoom: 18,
-        // Tap on map sets destination only when NOT navigating
         onTap: state.isNavigating
             ? null
             : (tapPosition, point) =>
                 ref.read(mapProvider.notifier).setDestination(point),
+        onMapEvent: (event) {
+          // Disable camera follow when user pans manually
+          if (event is MapEventScrollWheelZoom ||
+              event is MapEventMove && event.source == MapEventSource.dragStart) {
+            if (_followCamera) setState(() => _followCamera = false);
+          }
+        },
       ),
       children: [
         TileLayer(
           urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
           userAgentPackageName: 'com.kotemap.app',
           maxNativeZoom: 19,
+          retinaMode: RetinaMode.isHighDensity(context),
         ),
 
         // Danger zone polygon
@@ -320,6 +321,27 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         children: [
           _MapLegend(),
           const SizedBox(height: 8),
+          // Recenter / follow-me button
+          GestureDetector(
+            onTap: () {
+              setState(() => _followCamera = true);
+              final loc = ref.read(mapProvider).userLocation;
+              if (loc != null) _mapController.move(loc, 15);
+            },
+            child: Container(
+              width: 30,
+              height: 30,
+              decoration: BoxDecoration(
+                color: _followCamera ? AppColors.primary : Colors.white,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.black.withValues(alpha: 0.1), width: 0.5),
+              ),
+              child: Icon(Icons.my_location,
+                  size: 16,
+                  color: _followCamera ? Colors.white : AppColors.primary),
+            ),
+          ),
+          const SizedBox(height: 6),
           _ZoomControls(mapController: _mapController),
         ],
       ),

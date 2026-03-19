@@ -55,6 +55,7 @@ class MapState {
   final int? remainingTimeMin;
   final String? routeError;
   final bool arrivedAtDestination;
+  final int aiStepIndex; // étape IA courante dans l'itinéraire sélectionné
 
   const MapState({
     this.userLocation,
@@ -84,6 +85,7 @@ class MapState {
     this.remainingTimeMin,
     this.routeError,
     this.arrivedAtDestination = false,
+    this.aiStepIndex = 0,
   });
 
   /// The effective starting point: explicit origin or current GPS location.
@@ -117,6 +119,7 @@ class MapState {
     Object? remainingTimeMin = _none,
     Object? routeError = _none,
     bool? arrivedAtDestination,
+    int? aiStepIndex,
   }) {
     return MapState(
       userLocation: identical(userLocation, _none)
@@ -167,6 +170,7 @@ class MapState {
           : routeError as String?,
       arrivedAtDestination:
           arrivedAtDestination ?? this.arrivedAtDestination,
+      aiStepIndex: aiStepIndex ?? this.aiStepIndex,
     );
   }
 }
@@ -233,8 +237,8 @@ final _demoItineraries = [
     priceFtg: 75,
     durationMin: 22,
     steps: [
-      ItineraryStep(label: 'Taptap Delmas', transport: ItineraryType.fastest),
-      ItineraryStep(label: 'Bus PV', transport: ItineraryType.safest),
+      ItineraryStep(label: 'Taptap Delmas', transport: ItineraryType.fastest, mode: StepTransport.taptap),
+      ItineraryStep(label: 'Bus PV', transport: ItineraryType.safest, mode: StepTransport.bus),
     ],
     polyline: [
       const LatLng(18.5474, -72.3380),
@@ -248,7 +252,7 @@ final _demoItineraries = [
     priceFtg: 90,
     durationMin: 30,
     steps: [
-      ItineraryStep(label: 'Bus direct', transport: ItineraryType.safest),
+      ItineraryStep(label: 'Bus direct', transport: ItineraryType.safest, mode: StepTransport.bus),
     ],
     polyline: [
       const LatLng(18.5474, -72.3380),
@@ -262,10 +266,9 @@ final _demoItineraries = [
     priceFtg: 50,
     durationMin: 40,
     steps: [
-      ItineraryStep(
-          label: 'Taptap Carrefour', transport: ItineraryType.fastest),
-      ItineraryStep(label: 'Taptap Delmas', transport: ItineraryType.fastest),
-      ItineraryStep(label: 'Bus PV', transport: ItineraryType.safest),
+      ItineraryStep(label: 'Taptap Carrefour', transport: ItineraryType.fastest, mode: StepTransport.taptap),
+      ItineraryStep(label: 'Taptap Delmas', transport: ItineraryType.fastest, mode: StepTransport.taptap),
+      ItineraryStep(label: 'Bus PV', transport: ItineraryType.safest, mode: StepTransport.bus),
     ],
   ),
 ];
@@ -363,7 +366,10 @@ class MapNotifier extends Notifier<MapState> {
           steps: opt.steps.map((s) => ItineraryStep(
             label: s,
             transport: type,
+            mode: ItineraryStep.detectMode(s),
           )).toList(),
+          safetyNote: opt.safetyNote,
+          warnings: opt.warnings,
         );
       }).toList();
 
@@ -389,6 +395,7 @@ class MapNotifier extends Notifier<MapState> {
       state = state.copyWith(
         itineraries: itineraries,
         selectedItinerary: itineraries.isNotEmpty ? itineraries.first : null,
+        aiStepIndex: 0,
         activeIncidents: allIncidents,
         showAlert: incidentWarnings.isNotEmpty,
         alertMessage: incidentWarnings.isNotEmpty
@@ -597,7 +604,16 @@ class MapNotifier extends Notifier<MapState> {
   // ─── Itinéraires (sélection) ──────────────────────────────────────────────
 
   void selectItinerary(Itinerary itinerary) =>
-      state = state.copyWith(selectedItinerary: itinerary);
+      state = state.copyWith(selectedItinerary: itinerary, aiStepIndex: 0);
+
+  void advanceAiStep() {
+    final max = (state.selectedItinerary?.steps.length ?? 1) - 1;
+    if (state.aiStepIndex < max) {
+      state = state.copyWith(aiStepIndex: state.aiStepIndex + 1);
+    }
+  }
+
+  void resetAiSteps() => state = state.copyWith(aiStepIndex: 0);
 
   void dismissAlert() => state = state.copyWith(showAlert: false);
 
