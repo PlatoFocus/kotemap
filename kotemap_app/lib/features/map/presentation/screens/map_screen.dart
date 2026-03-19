@@ -129,32 +129,29 @@ class _MapScreenState extends ConsumerState<MapScreen> {
 
     return Scaffold(
       backgroundColor: AppColors.background,
-      body: Stack(
+      body: Column(
         children: [
-          // Map full screen
-          _buildMap(state, stations),
+          Expanded(
+            child: Stack(
+              children: [
+                _buildMap(state, stations),
 
-          // Navigation overlay replaces the search bar while navigating
-          if (state.isNavigating)
-            const NavigationOverlay()
-          else if (state.arrivedAtDestination)
-            const ArrivalCard()
-          else
-            _buildTopOverlay(),
+                if (state.isNavigating)
+                  const NavigationOverlay()
+                else if (state.arrivedAtDestination)
+                  const ArrivalCard()
+                else
+                  _buildTopOverlay(),
 
-          // Zoom controls + recenter button
-          _buildMapControls(),
-
-          // Bottom sheet (itinerary or destination stations)
-          if (!state.isNavigating && !state.arrivedAtDestination)
-            Positioned(
-              bottom: 0,
-              left: 0,
-              right: 0,
-              child: state.selectedPlace != null
-                  ? const DestinationStationsSheet()
-                  : const ItineraryBottomSheet(),
+                _buildMapControls(),
+              ],
             ),
+          ),
+
+          if (!state.isNavigating && !state.arrivedAtDestination)
+            state.selectedPlace != null
+                ? const DestinationStationsSheet()
+                : const ItineraryBottomSheet(),
         ],
       ),
     );
