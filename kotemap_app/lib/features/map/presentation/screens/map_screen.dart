@@ -121,7 +121,10 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     ref.listen<bool>(
       mapProvider.select((s) => s.isNavigating),
       (prev, navigating) {
-        if (!navigating) {
+        if (navigating) {
+          final userLoc = ref.read(mapProvider).userLocation;
+          if (userLoc != null) _mapController.move(userLoc, 16);
+        } else {
           _followCamera = false;
         }
       },
