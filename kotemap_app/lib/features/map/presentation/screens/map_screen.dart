@@ -15,6 +15,7 @@ import '../widgets/alert_banner.dart';
 import '../widgets/station_marker.dart';
 import '../widgets/itinerary_bottom_sheet.dart';
 import '../widgets/navigation_overlay.dart';
+import '../widgets/destination_stations_sheet.dart';
 
 class MapScreen extends ConsumerStatefulWidget {
   const MapScreen({super.key});
@@ -155,9 +156,11 @@ class _MapScreenState extends ConsumerState<MapScreen> {
             ),
           ),
 
-          // Itinerary sheet only shown when not navigating
+          // Panneau bas : stations pour la destination OU itinéraires classiques
           if (!state.isNavigating && !state.arrivedAtDestination)
-            const ItineraryBottomSheet(),
+            state.selectedPlace != null
+                ? const DestinationStationsSheet()
+                : const ItineraryBottomSheet(),
         ],
       ),
     );

@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:latlong2/latlong.dart';
 import '../../../../core/services/api_service.dart';
 
@@ -15,6 +16,7 @@ class Station {
   final int? fareMax;
   final double? rating;
   final bool isVerified;
+  final List<String>? routes; // destinations desservies ex: ["Pétion-Ville", "Centre-Ville"]
 
   const Station({
     required this.id,
@@ -26,6 +28,7 @@ class Station {
     this.fareMax,
     this.rating,
     this.isVerified = false,
+    this.routes,
   });
 
   /// Convertit une [ApiStation] reçue du backend en modèle domaine Flutter.
@@ -36,15 +39,22 @@ class Station {
       _ => StationType.taptap,
     };
 
+    List<String>? routes;
+    if (api.routesJson != null && api.routesJson!.isNotEmpty) {
+      try {
+        routes = List<String>.from(jsonDecode(api.routesJson!) as List);
+      } catch (_) {}
+    }
+
     return Station(
       id: 'api_${api.id}',
       name: api.name,
       type: type,
       position: LatLng(api.latitude, api.longitude),
       isVerified: api.isVerified,
-      // Les tarifs ne sont pas encore dans l'API — valeurs par défaut
       fareMin: type == StationType.bus ? 15 : 25,
       fareMax: type == StationType.bus ? 25 : 50,
+      routes: routes,
     );
   }
 

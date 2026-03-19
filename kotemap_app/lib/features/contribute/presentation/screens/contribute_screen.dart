@@ -6,6 +6,7 @@ import '../../../../core/constants/app_colors.dart';
 import '../../../../core/i18n/app_strings.dart';
 import '../../../../core/theme/app_theme_colors.dart';
 import '../../../../core/providers/tab_provider.dart';
+import '../../../map/domain/models/place_location.dart';
 import '../../../map/domain/models/station.dart';
 import '../../../map/presentation/widgets/bottom_nav_bar.dart';
 import '../../domain/models/contribution.dart';
@@ -43,17 +44,35 @@ class ContributeScreen extends ConsumerWidget {
                 children: [
                   _sectionLabel(s.contribTypeTitle, context),
                   const SizedBox(height: 8),
-                  _TypeGrid(selectedType: state.selectedType, s: s),
+                  _TypeGrid(s: s),
                   const SizedBox(height: 20),
                   _FieldGroup(state: state, s: s),
                   const SizedBox(height: 20),
                   _sectionLabel(s.gpsSection, context),
                   const SizedBox(height: 8),
                   const _MiniMap(),
-                  const SizedBox(height: 20),
-                  _sectionLabel(s.fareSection, context),
-                  const SizedBox(height: 8),
-                  _FareRow(fareMin: state.fareMin, fareMax: state.fareMax, s: s),
+                  if (state.selectedType == ContributionType.newStation ||
+                      state.selectedType == ContributionType.fare) ...[
+                    const SizedBox(height: 20),
+                    _sectionLabel(s.fareSection, context),
+                    const SizedBox(height: 8),
+                    _FareRow(fareMin: state.fareMin, fareMax: state.fareMax, s: s),
+                  ],
+                  if (state.error != null) ...[
+                    const SizedBox(height: 12),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFEF2F2),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(children: [
+                        const Icon(Icons.error_outline, color: Color(0xFFDC2626), size: 16),
+                        const SizedBox(width: 8),
+                        Expanded(child: Text(state.error!, style: const TextStyle(color: Color(0xFFDC2626), fontSize: 13))),
+                      ]),
+                    ),
+                  ],
                   const SizedBox(height: 24),
                   _SubmitSection(isSubmitting: state.isSubmitting, s: s),
                   const SizedBox(height: 16),
@@ -147,117 +166,48 @@ class _ContributeHeader extends StatelessWidget {
 // ─── Type Grid ────────────────────────────────────────────────────────────────
 
 class _TypeGrid extends ConsumerWidget {
-  final ContributionType selectedType;
   final S s;
-  const _TypeGrid({required this.selectedType, required this.s});
+  const _TypeGrid({required this.s});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final current = ref.watch(contributeProvider).selectedType;
     final types = [
-      (ContributionType.newStation, s.typeNewStation,
-          Icons.location_on_outlined,
-          const Color(0xFF3730A3), const Color(0xFFEEF2FF)),
-      (ContributionType.fare, s.typeFare, Icons.attach_money,
-          const Color(0xFF15803D), const Color(0xFFF0FDF4)),
-      (ContributionType.incident, s.typeIncident,
-          Icons.warning_amber_outlined,
-          const Color(0xFFDC2626), const Color(0xFFFEF2F2)),
-      (ContributionType.correction, s.typeCorrection, Icons.edit_outlined,
-          const Color(0xFFC2410C), const Color(0xFFFFF7ED)),
+      (ContributionType.newStation, s.typeNewStation, Icons.location_on_outlined),
+      (ContributionType.fare, s.typeFare, Icons.attach_money),
+      (ContributionType.incident, s.typeIncident, Icons.warning_amber_outlined),
+      (ContributionType.correction, s.typeCorrection, Icons.edit_outlined),
     ];
 
-    return GridView.count(
-      crossAxisCount: 2,
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      mainAxisSpacing: 10,
-      crossAxisSpacing: 10,
-      childAspectRatio: 2.8,
-      children: types
-          .map((t) => _TypeCard(
-                label: t.$2,
-                icon: t.$3,
-                iconColor: t.$4,
-                bgColor: t.$5,
-                selected: selectedType == t.$1,
-                onTap: () =>
-                    ref.read(contributeProvider.notifier).setType(t.$1),
-              ))
-          .toList(),
-    );
-  }
-}
-
-class _TypeCard extends StatelessWidget {
-  final String label;
-  final IconData icon;
-  final Color iconColor;
-  final Color bgColor;
-  final bool selected;
-  final VoidCallback onTap;
-
-  const _TypeCard({
-    required this.label,
-    required this.icon,
-    required this.iconColor,
-    required this.bgColor,
-    required this.selected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        decoration: BoxDecoration(
-          color: context.tc.surface,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: selected ? AppColors.primary : Colors.transparent,
-            width: 2,
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.06),
-              blurRadius: 4,
-              offset: const Offset(0, 2),
+    return Wrap(
+      spacing: 10,
+      runSpacing: 10,
+      children: types.map((t) {
+        final isSelected = current == t.$1;
+        return SizedBox(
+          width: (MediaQuery.of(context).size.width - 52) / 2,
+          height: 48,
+          child: ElevatedButton.icon(
+            onPressed: () => ref.read(contributeProvider.notifier).setType(t.$1),
+            icon: Icon(t.$3, size: 16),
+            label: Text(t.$2, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: isSelected ? AppColors.primary : Colors.white,
+              foregroundColor: isSelected ? Colors.white : const Color(0xFF1C1C1E),
+              elevation: isSelected ? 2 : 1,
+              side: BorderSide(
+                color: isSelected ? AppColors.primary : const Color(0xFFE5E7EB),
+              ),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             ),
-          ],
-        ),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          child: Row(
-            children: [
-              Container(
-                width: 32,
-                height: 32,
-                decoration: BoxDecoration(
-                    color: bgColor,
-                    borderRadius: BorderRadius.circular(8)),
-                child: Icon(icon, color: iconColor, size: 16),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(label,
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: selected
-                          ? AppColors.primary
-                          : const Color(0xFF1C1C1E),
-                    )),
-              ),
-            ],
           ),
-        ),
-      ),
+        );
+      }).toList(),
     );
   }
 }
 
-// ─── Field Group ──────────────────────────────────────────────────────────────
+// ─── Field Group (dynamique selon le type) ────────────────────────────────────
 
 class _FieldGroup extends ConsumerWidget {
   final ContributeState state;
@@ -266,8 +216,283 @@ class _FieldGroup extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final notifier = ref.read(contributeProvider.notifier);
+    return switch (state.selectedType) {
+      ContributionType.newStation => _NewStationFields(state: state, s: s),
+      ContributionType.incident => _IncidentFields(state: state, s: s),
+      ContributionType.fare => _FareCorrectionFields(state: state, s: s),
+      ContributionType.correction => _CorrectionFields(state: state, s: s),
+    };
+  }
+}
 
+// ── Nouvelle station ──────────────────────────────────────────────────────────
+
+class _NewStationFields extends ConsumerWidget {
+  final ContributeState state;
+  final S s;
+  const _NewStationFields({required this.state, required this.s});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final notifier = ref.read(contributeProvider.notifier);
+    return _Card(children: [
+      // Station de départ
+      _FieldRow(
+        iconBg: const Color(0xFFEEF2FF),
+        iconColor: const Color(0xFF3730A3),
+        icon: Icons.trip_origin,
+        label: 'Station de départ',
+        value: state.departureStation.isEmpty ? 'Ex: Champ de Mars' : state.departureStation,
+        onTap: () => _showStationPicker(
+          context,
+          title: 'Station de départ',
+          hint: 'Ex: Champ de Mars, Delmas 32...',
+          initial: state.departureStation,
+          onSave: notifier.setDepartureStation,
+          s: s,
+        ),
+        isLast: false,
+      ),
+      // Flèche entre départ et arrivée
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+        child: Row(
+          children: [
+            const SizedBox(width: 16),
+            Column(
+              children: [
+                Container(width: 1.5, height: 8, color: const Color(0xFFD1D5DB)),
+                const Icon(Icons.arrow_downward, size: 14, color: Color(0xFF9CA3AF)),
+                Container(width: 1.5, height: 8, color: const Color(0xFFD1D5DB)),
+              ],
+            ),
+            const SizedBox(width: 26),
+            Expanded(
+              child: Text(
+                state.stationName.isNotEmpty
+                    ? state.stationName
+                    : 'Ligne : ${state.departureStation.isEmpty ? "?" : state.departureStation} → ${state.arrivalStation.isEmpty ? "?" : state.arrivalStation}',
+                style: const TextStyle(fontSize: 11, color: Color(0xFF6B7280), fontStyle: FontStyle.italic),
+              ),
+            ),
+          ],
+        ),
+      ),
+      // Station d'arrivée
+      _FieldRow(
+        iconBg: const Color(0xFFF0FDF4),
+        iconColor: const Color(0xFF15803D),
+        icon: Icons.location_on,
+        label: 'Station d\'arrivée / Destination',
+        value: state.arrivalStation.isEmpty ? 'Ex: Pétion-Ville' : state.arrivalStation,
+        onTap: () => _showStationPicker(
+          context,
+          title: 'Station d\'arrivée',
+          hint: 'Ex: Pétion-Ville, Aéroport...',
+          initial: state.arrivalStation,
+          onSave: notifier.setArrivalStation,
+          s: s,
+        ),
+        isLast: false,
+      ),
+      _FieldRow(
+        iconBg: const Color(0xFFF0FDF4),
+        iconColor: const Color(0xFF15803D),
+        icon: Icons.directions_bus_outlined,
+        label: s.fieldVehicle,
+        value: _vehicleLabel(state.vehicleType, s),
+        onTap: () => _showVehiclePicker(context, ref, s),
+        isLast: false,
+      ),
+      _FieldRow(
+        iconBg: const Color(0xFFFEF3C7),
+        iconColor: const Color(0xFFD97706),
+        icon: Icons.info_outline,
+        label: s.fieldSecurity,
+        value: _securityLabel(state.securityLevel, s),
+        valueColor: _securityColor(state.securityLevel),
+        onTap: () => _showSecurityPicker(context, ref, s),
+        isLast: true,
+      ),
+    ]);
+  }
+}
+
+// ── Incident ──────────────────────────────────────────────────────────────────
+
+class _IncidentFields extends ConsumerWidget {
+  final ContributeState state;
+  final S s;
+  const _IncidentFields({required this.state, required this.s});
+
+  static const _severities = [
+    ('high', 'Grave / Danger immédiat', Color(0xFFDC2626)),
+    ('medium', 'Modéré', Color(0xFFD97706)),
+    ('low', 'Mineur / Informatif', Color(0xFF15803D)),
+  ];
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final notifier = ref.read(contributeProvider.notifier);
+    final sevLabel = _severities
+        .firstWhere((e) => e.$1 == state.incidentSeverity,
+            orElse: () => _severities[1])
+        .$2;
+    final sevColor = _severities
+        .firstWhere((e) => e.$1 == state.incidentSeverity,
+            orElse: () => _severities[1])
+        .$3;
+
+    return _Card(children: [
+      _FieldRow(
+        iconBg: const Color(0xFFFEF2F2),
+        iconColor: const Color(0xFFDC2626),
+        icon: Icons.warning_amber_outlined,
+        label: 'Titre de l\'incident',
+        value: state.incidentTitle.isEmpty ? 'Ex: Route bloquée Delmas 33' : state.incidentTitle,
+        onTap: () => _showTextDialog(
+          context,
+          title: 'Titre de l\'incident',
+          hint: 'Ex: Route bloquée, manifestation...',
+          initial: state.incidentTitle,
+          onSave: notifier.setIncidentTitle,
+          s: s,
+        ),
+        isLast: false,
+      ),
+      _FieldRow(
+        iconBg: const Color(0xFFF1F5F9),
+        iconColor: const Color(0xFF475569),
+        icon: Icons.notes_outlined,
+        label: 'Description (optionnel)',
+        value: state.incidentDescription.isEmpty ? 'Ajouter des détails...' : state.incidentDescription,
+        onTap: () => _showTextDialog(
+          context,
+          title: 'Description',
+          hint: 'Décrivez l\'incident...',
+          initial: state.incidentDescription,
+          onSave: notifier.setIncidentDescription,
+          s: s,
+          multiline: true,
+        ),
+        isLast: false,
+      ),
+      _FieldRow(
+        iconBg: const Color(0xFFFEF3C7),
+        iconColor: sevColor,
+        icon: Icons.flag_outlined,
+        label: 'Sévérité',
+        value: sevLabel,
+        valueColor: sevColor,
+        onTap: () => showModalBottomSheet(
+          context: context,
+          builder: (_) => Column(
+            mainAxisSize: MainAxisSize.min,
+            children: _severities
+                .map((sev) => ListTile(
+                      leading: Icon(Icons.circle, color: sev.$3, size: 14),
+                      title: Text(sev.$2, style: TextStyle(color: sev.$3)),
+                      onTap: () {
+                        notifier.setIncidentSeverity(sev.$1);
+                        Navigator.pop(context);
+                      },
+                    ))
+                .toList(),
+          ),
+        ),
+        isLast: true,
+      ),
+    ]);
+  }
+}
+
+// ── Correction tarif ──────────────────────────────────────────────────────────
+
+class _FareCorrectionFields extends ConsumerWidget {
+  final ContributeState state;
+  final S s;
+  const _FareCorrectionFields({required this.state, required this.s});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final notifier = ref.read(contributeProvider.notifier);
+    return _Card(children: [
+      _FieldRow(
+        iconBg: const Color(0xFFEEF2FF),
+        iconColor: const Color(0xFF3730A3),
+        icon: Icons.location_on_outlined,
+        label: 'Station concernée',
+        value: state.correctionTarget.isEmpty ? 'Ex: Station Delmas 32' : state.correctionTarget,
+        onTap: () => _showTextDialog(
+          context,
+          title: 'Station concernée',
+          hint: 'Ex: Station Delmas 32',
+          initial: state.correctionTarget,
+          onSave: notifier.setCorrectionTarget,
+          s: s,
+        ),
+        isLast: true,
+      ),
+    ]);
+  }
+}
+
+// ── Correction générale ───────────────────────────────────────────────────────
+
+class _CorrectionFields extends ConsumerWidget {
+  final ContributeState state;
+  final S s;
+  const _CorrectionFields({required this.state, required this.s});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final notifier = ref.read(contributeProvider.notifier);
+    return _Card(children: [
+      _FieldRow(
+        iconBg: const Color(0xFFEEF2FF),
+        iconColor: const Color(0xFF3730A3),
+        icon: Icons.location_on_outlined,
+        label: 'Station concernée',
+        value: state.correctionTarget.isEmpty ? 'Ex: Station Delmas 32' : state.correctionTarget,
+        onTap: () => _showTextDialog(
+          context,
+          title: 'Station concernée',
+          hint: 'Ex: Station Delmas 32',
+          initial: state.correctionTarget,
+          onSave: notifier.setCorrectionTarget,
+          s: s,
+        ),
+        isLast: false,
+      ),
+      _FieldRow(
+        iconBg: const Color(0xFFFFF7ED),
+        iconColor: const Color(0xFFC2410C),
+        icon: Icons.edit_outlined,
+        label: 'Correction à apporter',
+        value: state.correctionDescription.isEmpty ? 'Décrivez l\'erreur...' : state.correctionDescription,
+        onTap: () => _showTextDialog(
+          context,
+          title: 'Correction',
+          hint: 'Ex: Le nom correct est...',
+          initial: state.correctionDescription,
+          onSave: notifier.setCorrectionDescription,
+          s: s,
+          multiline: true,
+        ),
+        isLast: true,
+      ),
+    ]);
+  }
+}
+
+// ── Card conteneur ────────────────────────────────────────────────────────────
+
+class _Card extends StatelessWidget {
+  final List<Widget> children;
+  const _Card({required this.children});
+
+  @override
+  Widget build(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
         color: context.tc.surface,
@@ -279,126 +504,239 @@ class _FieldGroup extends ConsumerWidget {
               offset: const Offset(0, 2)),
         ],
       ),
-      child: Column(
-        children: [
-          _FieldRow(
-            iconBg: const Color(0xFFEEF2FF),
-            iconColor: const Color(0xFF3730A3),
-            icon: Icons.favorite_border,
-            label: s.fieldStationName,
-            value: state.stationName.isEmpty
-                ? s.fieldStationPlaceholder
-                : state.stationName,
-            onTap: () => _showTextInput(context, notifier, state.stationName, s),
-            isLast: false,
-          ),
-          _FieldRow(
-            iconBg: const Color(0xFFF0FDF4),
-            iconColor: const Color(0xFF15803D),
-            icon: Icons.directions_bus_outlined,
-            label: s.fieldVehicle,
-            value: _vehicleLabel(state.vehicleType, s),
-            onTap: () => _showVehiclePicker(context, ref, s),
-            isLast: false,
-          ),
-          _FieldRow(
-            iconBg: const Color(0xFFFEF3C7),
-            iconColor: const Color(0xFFD97706),
-            icon: Icons.info_outline,
-            label: s.fieldSecurity,
-            value: _securityLabel(state.securityLevel, s),
-            valueColor: _securityColor(state.securityLevel),
-            onTap: () => _showSecurityPicker(context, ref, s),
-            isLast: true,
-          ),
-        ],
-      ),
+      child: Column(children: children),
     );
   }
+}
 
-  String _vehicleLabel(StationType t, S s) => switch (t) {
-        StationType.bus => s.typeBus,
-        StationType.taptap => s.typeTaptap,
-        StationType.moto => s.typeMoto,
-      };
+// ── Helpers communs ───────────────────────────────────────────────────────────
 
-  String _securityLabel(SecurityLevel l, S s) => switch (l) {
-        SecurityLevel.high => s.secSafe,
-        SecurityLevel.moderate => s.secModerate,
-        SecurityLevel.low => s.secDangerous,
-      };
+String _vehicleLabel(StationType t, S s) => switch (t) {
+      StationType.bus => s.typeBus,
+      StationType.taptap => s.typeTaptap,
+      StationType.moto => s.typeMoto,
+    };
 
-  Color _securityColor(SecurityLevel l) => switch (l) {
-        SecurityLevel.high => const Color(0xFF15803D),
-        SecurityLevel.moderate => const Color(0xFFD97706),
-        SecurityLevel.low => const Color(0xFFDC2626),
-      };
+String _securityLabel(SecurityLevel l, S s) => switch (l) {
+      SecurityLevel.high => s.secSafe,
+      SecurityLevel.moderate => s.secModerate,
+      SecurityLevel.low => s.secDangerous,
+    };
 
-  void _showTextInput(BuildContext context, ContributeNotifier notifier,
-      String currentName, S s) async {
-    final ctrl = TextEditingController(text: currentName);
-    await showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: Text(s.fieldStationName),
-        content: TextField(
-          controller: ctrl,
-          autofocus: true,
-          decoration: InputDecoration(hintText: s.fieldStationHint),
+Color _securityColor(SecurityLevel l) => switch (l) {
+      SecurityLevel.high => const Color(0xFF15803D),
+      SecurityLevel.moderate => const Color(0xFFD97706),
+      SecurityLevel.low => const Color(0xFFDC2626),
+    };
+
+void _showTextDialog(
+  BuildContext context, {
+  required String title,
+  required String hint,
+  required String initial,
+  required void Function(String) onSave,
+  required S s,
+  bool multiline = false,
+}) async {
+  final ctrl = TextEditingController(text: initial);
+  await showDialog(
+    context: context,
+    builder: (_) => AlertDialog(
+      title: Text(title),
+      content: TextField(
+        controller: ctrl,
+        autofocus: true,
+        maxLines: multiline ? 4 : 1,
+        decoration: InputDecoration(hintText: hint),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: Text(s.cancel)),
+        FilledButton(
+          onPressed: () {
+            onSave(ctrl.text.trim());
+            Navigator.pop(context);
+          },
+          child: Text(s.ok),
         ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text(s.cancel)),
-          FilledButton(
-              onPressed: () {
-                notifier.setStationName(ctrl.text);
-                Navigator.pop(context);
-              },
-              child: Text(s.ok)),
-        ],
-      ),
-    );
-  }
+      ],
+    ),
+  );
+}
 
-  void _showVehiclePicker(BuildContext context, WidgetRef ref, S s) {
-    showModalBottomSheet(
-      context: context,
-      builder: (_) => Column(
-        mainAxisSize: MainAxisSize.min,
-        children: StationType.values
-            .map((t) => ListTile(
-                  title: Text(_vehicleLabel(t, s)),
-                  onTap: () {
-                    ref.read(contributeProvider.notifier).setVehicleType(t);
-                    Navigator.pop(context);
-                  },
-                  selected: ref.read(contributeProvider).vehicleType == t,
-                  selectedColor: AppColors.primary,
-                ))
-            .toList(),
-      ),
-    );
-  }
+void _showStationPicker(
+  BuildContext context, {
+  required String title,
+  required String hint,
+  required String initial,
+  required void Function(String) onSave,
+  required S s,
+}) {
+  final ctrl = TextEditingController(text: initial);
+  final searchCtrl = TextEditingController();
+  String query = '';
 
-  void _showSecurityPicker(BuildContext context, WidgetRef ref, S s) {
-    showModalBottomSheet(
-      context: context,
-      builder: (_) => Column(
-        mainAxisSize: MainAxisSize.min,
-        children: SecurityLevel.values
-            .map((l) => ListTile(
-                  title: Text(_securityLabel(l, s)),
-                  textColor: _securityColor(l),
-                  onTap: () {
-                    ref.read(contributeProvider.notifier).setSecurityLevel(l);
-                    Navigator.pop(context);
-                  },
-                ))
-            .toList(),
-      ),
-    );
-  }
+  showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+    ),
+    builder: (ctx) => StatefulBuilder(
+      builder: (ctx, setState) {
+        final filtered = query.isEmpty
+            ? kPortAuPrincePlaces
+            : kPortAuPrincePlaces.where((p) => p.matches(query)).toList();
+
+        return Padding(
+          padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+          child: SizedBox(
+            height: MediaQuery.of(ctx).size.height * 0.75,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Handle bar
+                Center(
+                  child: Container(
+                    margin: const EdgeInsets.only(top: 12, bottom: 8),
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFD1D5DB),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Text(title,
+                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                ),
+                const SizedBox(height: 12),
+                // Text input at top
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: TextField(
+                    controller: ctrl,
+                    autofocus: true,
+                    decoration: InputDecoration(
+                      hintText: hint,
+                      prefixIcon: const Icon(Icons.edit_location_alt_outlined, size: 20),
+                      filled: true,
+                      fillColor: const Color(0xFFF3F4F6),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide: BorderSide.none,
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                // Search predefined places
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: TextField(
+                    controller: searchCtrl,
+                    decoration: InputDecoration(
+                      hintText: 'Chercher un quartier...',
+                      prefixIcon: const Icon(Icons.search, size: 20),
+                      filled: true,
+                      fillColor: const Color(0xFFF3F4F6),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide: BorderSide.none,
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
+                    ),
+                    onChanged: (v) => setState(() => query = v.trim().toLowerCase()),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                // Suggestions list
+                Expanded(
+                  child: ListView.builder(
+                    itemCount: filtered.length,
+                    itemBuilder: (_, i) {
+                      final place = filtered[i];
+                      return ListTile(
+                        dense: true,
+                        leading: const Icon(Icons.location_on_outlined, size: 18, color: AppColors.primary),
+                        title: Text(place.name, style: const TextStyle(fontSize: 14)),
+                        subtitle: Text(place.zone, style: const TextStyle(fontSize: 11, color: Color(0xFF9CA3AF))),
+                        onTap: () {
+                          onSave(place.name);
+                          Navigator.pop(ctx);
+                        },
+                      );
+                    },
+                  ),
+                ),
+                // Confirm custom text
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                  child: SizedBox(
+                    width: double.infinity,
+                    height: 46,
+                    child: FilledButton(
+                      onPressed: () {
+                        final text = ctrl.text.trim();
+                        if (text.isNotEmpty) onSave(text);
+                        Navigator.pop(ctx);
+                      },
+                      style: FilledButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                      child: Text(s.ok),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    ),
+  );
+}
+
+void _showVehiclePicker(BuildContext context, WidgetRef ref, S s) {
+  showModalBottomSheet(
+    context: context,
+    builder: (_) => Column(
+      mainAxisSize: MainAxisSize.min,
+      children: StationType.values
+          .map((t) => ListTile(
+                title: Text(_vehicleLabel(t, s)),
+                onTap: () {
+                  ref.read(contributeProvider.notifier).setVehicleType(t);
+                  Navigator.pop(context);
+                },
+                selected: ref.read(contributeProvider).vehicleType == t,
+                selectedColor: AppColors.primary,
+              ))
+          .toList(),
+    ),
+  );
+}
+
+void _showSecurityPicker(BuildContext context, WidgetRef ref, S s) {
+  showModalBottomSheet(
+    context: context,
+    builder: (_) => Column(
+      mainAxisSize: MainAxisSize.min,
+      children: SecurityLevel.values
+          .map((l) => ListTile(
+                title: Text(_securityLabel(l, s)),
+                textColor: _securityColor(l),
+                onTap: () {
+                  ref.read(contributeProvider.notifier).setSecurityLevel(l);
+                  Navigator.pop(context);
+                },
+              ))
+          .toList(),
+    ),
+  );
 }
 
 class _FieldRow extends StatelessWidget {

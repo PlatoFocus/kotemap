@@ -1,3 +1,4 @@
+import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:latlong2/latlong.dart';
@@ -5,6 +6,7 @@ import '../../domain/models/station.dart';
 import '../../domain/models/itinerary.dart';
 import '../../domain/models/incident.dart';
 import '../../domain/models/route_result.dart';
+import '../../domain/models/place_location.dart';
 import '../../data/routing_service.dart';
 import '../../../../core/services/api_service.dart';
 
@@ -27,14 +29,21 @@ class MapState {
   final LatLng? userLocation;
   final LatLng? origin; // null = use GPS userLocation
   final LatLng? destination;
+  final PlaceLocation? selectedPlace; // lieu prédéfini sélectionné
+  final String? destinationName;
   final TransportFilter filter;
   final List<Station> stations;
+  final List<Station> servingStations; // stations qui desservent la destination
+  final Station? nearestStation;       // station la plus proche de l'utilisateur
+  final List<Station> connectionStations; // stations de connexion vers la principale
   final List<Itinerary> itineraries;
   final List<Incident> activeIncidents;
   final Itinerary? selectedItinerary;
   final bool showAlert;
   final String? alertMessage;
   final String searchQuery;
+  final List<PlaceLocation> recentPlaces; // historique récent
+  final List<String> favoritePlaceIds;    // favoris
 
   // Navigation
   final bool isNavigating;
@@ -51,14 +60,21 @@ class MapState {
     this.userLocation,
     this.origin,
     this.destination,
+    this.selectedPlace,
+    this.destinationName,
     this.filter = TransportFilter.all,
     this.stations = const [],
+    this.servingStations = const [],
+    this.nearestStation,
+    this.connectionStations = const [],
     this.itineraries = const [],
     this.activeIncidents = const [],
     this.selectedItinerary,
     this.showAlert = true,
     this.alertMessage,
     this.searchQuery = '',
+    this.recentPlaces = const [],
+    this.favoritePlaceIds = const [],
     this.isNavigating = false,
     this.isFetchingRoute = false,
     this.routePoints = const [],
@@ -77,14 +93,21 @@ class MapState {
     Object? userLocation = _none,
     Object? origin = _none,
     Object? destination = _none,
+    Object? selectedPlace = _none,
+    Object? destinationName = _none,
     TransportFilter? filter,
     List<Station>? stations,
+    List<Station>? servingStations,
+    Object? nearestStation = _none,
+    List<Station>? connectionStations,
     List<Itinerary>? itineraries,
     List<Incident>? activeIncidents,
     Object? selectedItinerary = _none,
     bool? showAlert,
     Object? alertMessage = _none,
     String? searchQuery,
+    List<PlaceLocation>? recentPlaces,
+    List<String>? favoritePlaceIds,
     bool? isNavigating,
     bool? isFetchingRoute,
     List<LatLng>? routePoints,
@@ -103,8 +126,19 @@ class MapState {
       destination: identical(destination, _none)
           ? this.destination
           : destination as LatLng?,
+      selectedPlace: identical(selectedPlace, _none)
+          ? this.selectedPlace
+          : selectedPlace as PlaceLocation?,
+      destinationName: identical(destinationName, _none)
+          ? this.destinationName
+          : destinationName as String?,
       filter: filter ?? this.filter,
       stations: stations ?? this.stations,
+      servingStations: servingStations ?? this.servingStations,
+      nearestStation: identical(nearestStation, _none)
+          ? this.nearestStation
+          : nearestStation as Station?,
+      connectionStations: connectionStations ?? this.connectionStations,
       itineraries: itineraries ?? this.itineraries,
       activeIncidents: activeIncidents ?? this.activeIncidents,
       selectedItinerary: identical(selectedItinerary, _none)
@@ -115,6 +149,8 @@ class MapState {
           ? this.alertMessage
           : alertMessage as String?,
       searchQuery: searchQuery ?? this.searchQuery,
+      recentPlaces: recentPlaces ?? this.recentPlaces,
+      favoritePlaceIds: favoritePlaceIds ?? this.favoritePlaceIds,
       isNavigating: isNavigating ?? this.isNavigating,
       isFetchingRoute: isFetchingRoute ?? this.isFetchingRoute,
       routePoints: routePoints ?? this.routePoints,
@@ -380,6 +416,107 @@ class MapNotifier extends Notifier<MapState> {
     }
   }
 
+  // ─── Sélection d'un lieu prédéfini ───────────────────────────────────────
+
+  void selectPlace(PlaceLocation place) {
+    // Ajouter à l'historique récent (max 5, pas de doublons)
+    final recent = [
+      place,
+      ...state.recentPlaces.where((p) => p.id != place.id),
+    ].take(5).toList();
+
+    state = state.copyWith(
+      selectedPlace: place,
+      destination: place.coordinates,
+      destinationName: place.name,
+      servingStations: [],
+      nearestStation: null,
+      connectionStations: [],
+      routePoints: [],
+      routeSteps: [],
+      isNavigating: false,
+      routeError: null,
+      arrivedAtDestination: false,
+      recentPlaces: recent,
+    );
+
+    _computeStationsForPlace(place);
+    Future.microtask(() => loadItineraries(destinationName: place.name));
+  }
+
+  /// Calcule les stations qui desservent ce lieu + la plus proche de l'user.
+  void _computeStationsForPlace(PlaceLocation place) {
+    final allStations = state.stations;
+    if (allStations.isEmpty) return;
+
+    // 1. Stations qui desservent la destination (routes_json contient le nom)
+    final keywords = [place.name, place.zone, ...place.keywords]
+        .map((k) => k.toLowerCase())
+        .toList();
+
+    final serving = allStations.where((s) {
+      if (s.routes == null) return false;
+      final routes = s.routes!.map((r) => r.toLowerCase()).toList();
+      return keywords.any((kw) => routes.any((r) => r.contains(kw)));
+    }).toList();
+
+    // 2. Station la plus proche de l'utilisateur (haversine)
+    final userLoc = state.effectiveOrigin;
+    Station? nearest;
+    if (userLoc != null && allStations.isNotEmpty) {
+      nearest = allStations.reduce((a, b) =>
+          _dist(userLoc, a.position) < _dist(userLoc, b.position) ? a : b);
+    }
+
+    // 3. Stations de connexion : si la station la plus proche ne dessert pas
+    //    la destination, trouver les stations intermédiaires dans un rayon de 2km
+    List<Station> connections = [];
+    if (nearest != null && serving.isNotEmpty) {
+      final nearestServesDestination =
+          serving.any((s) => s.id == nearest!.id);
+      if (!nearestServesDestination) {
+        // Stations proches de l'user qui peuvent mener vers les stations desservantes
+        connections = allStations.where((s) {
+          if (s.id == nearest!.id) return false;
+          final distFromUser = userLoc != null ? _dist(userLoc, s.position) : double.infinity;
+          return distFromUser < 2000 && serving.isNotEmpty;
+        }).take(3).toList();
+      }
+    }
+
+    state = state.copyWith(
+      servingStations: serving,
+      nearestStation: nearest,
+      connectionStations: connections,
+    );
+  }
+
+  double _dist(LatLng a, LatLng b) {
+    const R = 6371000.0;
+    final lat1 = a.latitude * pi / 180;
+    final lat2 = b.latitude * pi / 180;
+    final dLat = (b.latitude - a.latitude) * pi / 180;
+    final dLng = (b.longitude - a.longitude) * pi / 180;
+    final sinDlat = sin(dLat / 2);
+    final sinDlng = sin(dLng / 2);
+    final x = sinDlat * sinDlat + cos(lat1) * cos(lat2) * sinDlng * sinDlng;
+    return R * 2 * atan2(sqrt(x), sqrt(1 - x));
+  }
+
+  // ─── Favoris ──────────────────────────────────────────────────────────────
+
+  void toggleFavorite(String placeId) {
+    final favs = List<String>.from(state.favoritePlaceIds);
+    if (favs.contains(placeId)) {
+      favs.remove(placeId);
+    } else {
+      favs.add(placeId);
+    }
+    state = state.copyWith(favoritePlaceIds: favs);
+  }
+
+  bool isFavorite(String placeId) => state.favoritePlaceIds.contains(placeId);
+
   // ─── Search / filter ──────────────────────────────────────────────────────
 
   void setFilter(TransportFilter filter) =>
@@ -397,7 +534,6 @@ class MapNotifier extends Notifier<MapState> {
       state = state.copyWith(origin: loc);
 
   void setDestination(LatLng dest) {
-    // Clear existing route whenever destination changes
     state = state.copyWith(
       destination: dest,
       routePoints: [],
@@ -406,13 +542,36 @@ class MapNotifier extends Notifier<MapState> {
       routeError: null,
       arrivedAtDestination: false,
     );
-    // Déclencher le calcul d'itinéraire IA automatiquement
+    Future.microtask(loadItineraries);
+  }
+
+  /// L'utilisateur choisit une station pour s'y rendre (depuis DestinationStationsSheet).
+  /// On efface le lieu sélectionné pour revenir à la vue itinéraire classique.
+  void navigateToStation(Station station) {
+    state = state.copyWith(
+      destination: station.position,
+      destinationName: station.name,
+      selectedPlace: null,
+      servingStations: [],
+      nearestStation: null,
+      connectionStations: [],
+      routePoints: [],
+      routeSteps: [],
+      isNavigating: false,
+      routeError: null,
+      arrivedAtDestination: false,
+    );
     Future.microtask(loadItineraries);
   }
 
   void clearDestination() {
     state = state.copyWith(
       destination: null,
+      selectedPlace: null,
+      destinationName: null,
+      servingStations: [],
+      nearestStation: null,
+      connectionStations: [],
       routePoints: [],
       routeSteps: [],
       isNavigating: false,

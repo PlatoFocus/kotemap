@@ -26,7 +26,10 @@ class MainShell extends ConsumerWidget {
     return Scaffold(
       body: IndexedStack(
         index: currentTab.index,
-        children: _screens,
+        children: _screens.asMap().entries.map((e) => IgnorePointer(
+          ignoring: e.key != currentTab.index,
+          child: e.value,
+        )).toList(),
       ),
       bottomNavigationBar: KoteBottomNavBar(
         currentTab: currentTab,

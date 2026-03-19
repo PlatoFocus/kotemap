@@ -4,6 +4,7 @@ import '../../../../core/constants/app_colors.dart';
 import '../../../../core/i18n/app_strings.dart';
 import '../../../../core/theme/app_theme_colors.dart';
 import '../../domain/models/station.dart';
+import '../../domain/models/place_location.dart';
 import '../providers/map_provider.dart';
 
 // ─── MapSearchBar ─────────────────────────────────────────────────────────────
@@ -112,9 +113,10 @@ class _OriginDestinationRows extends ConsumerWidget {
     final originLabel = origin == null
         ? s.myPosition
         : '${origin.latitude.toStringAsFixed(4)}, ${origin.longitude.toStringAsFixed(4)}';
-    final destLabel = dest != null
-        ? '${dest.latitude.toStringAsFixed(4)}, ${dest.longitude.toStringAsFixed(4)}'
-        : s.searchHint;
+    final destLabel = state.destinationName ??
+        (dest != null
+            ? '${dest.latitude.toStringAsFixed(4)}, ${dest.longitude.toStringAsFixed(4)}'
+            : s.searchHint);
 
     return Container(
       decoration: BoxDecoration(
@@ -286,31 +288,35 @@ class _SearchSheet extends ConsumerStatefulWidget {
 
 class _SearchSheetState extends ConsumerState<_SearchSheet> {
   final _ctrl = TextEditingController();
+  String _query = '';
 
   @override
   void initState() {
     super.initState();
-    _ctrl.addListener(() {
-      ref.read(mapProvider.notifier).setSearchQuery(_ctrl.text);
-    });
+    _ctrl.addListener(() => setState(() => _query = _ctrl.text));
   }
 
   @override
   void dispose() {
-    ref.read(mapProvider.notifier).setSearchQuery('');
     _ctrl.dispose();
     super.dispose();
   }
 
+  List<PlaceLocation> get _filteredPlaces =>
+      kPortAuPrincePlaces.where((p) => p.matches(_query)).toList();
+
   @override
   Widget build(BuildContext context) {
-    final stations = ref.watch(filteredStationsProvider);
+    final mapState = ref.watch(mapProvider);
     final s = widget.s;
+    final places = _filteredPlaces;
+    final recent = mapState.recentPlaces;
+    final favIds = mapState.favoritePlaceIds;
 
     return DraggableScrollableSheet(
-      initialChildSize: 0.65,
-      minChildSize: 0.4,
-      maxChildSize: 0.9,
+      initialChildSize: 0.75,
+      minChildSize: 0.5,
+      maxChildSize: 0.95,
       builder: (_, scrollCtrl) => Container(
         decoration: BoxDecoration(
           color: context.tc.surface,
@@ -318,90 +324,203 @@ class _SearchSheetState extends ConsumerState<_SearchSheet> {
         ),
         child: Column(
           children: [
+            // Handle
             const SizedBox(height: 8),
             Container(
-              width: 36,
-              height: 4,
+              width: 36, height: 4,
               decoration: BoxDecoration(
                 color: const Color(0xFFE5E5EA),
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
+            // Search field
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
               child: TextField(
                 controller: _ctrl,
                 autofocus: true,
                 decoration: InputDecoration(
-                  hintText: widget.forOrigin
-                      ? s.searchOriginHint
-                      : s.searchHint,
-                  prefixIcon: const Icon(Icons.search,
-                      color: AppColors.textTertiary, size: 20),
+                  hintText: widget.forOrigin ? s.searchOriginHint : s.searchHint,
+                  prefixIcon: const Icon(Icons.search, color: AppColors.textTertiary, size: 20),
+                  suffixIcon: _query.isNotEmpty
+                      ? IconButton(
+                          icon: const Icon(Icons.close, size: 18),
+                          onPressed: () { _ctrl.clear(); setState(() => _query = ''); },
+                        )
+                      : null,
                   filled: true,
                   fillColor: context.tc.inputFill,
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
                     borderSide: BorderSide.none,
                   ),
-                  contentPadding:
-                      const EdgeInsets.symmetric(vertical: 10),
+                  contentPadding: const EdgeInsets.symmetric(vertical: 10),
                 ),
               ),
             ),
-            // "Ma position GPS" tile (only for origin search)
-            if (widget.forOrigin)
-              ListTile(
-                leading: Container(
-                  width: 36,
-                  height: 36,
-                  decoration: BoxDecoration(
-                    color: AppColors.primary,
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(Icons.my_location,
-                      color: Colors.white, size: 18),
-                ),
-                title: Text(s.myPosition,
-                    style: const TextStyle(
-                        fontSize: 14, fontWeight: FontWeight.w600)),
-                subtitle: Text(s.fromLabel,
-                    style: const TextStyle(
-                        fontSize: 12, color: Color(0xFF8E8E93))),
-                onTap: () {
-                  ref.read(mapProvider.notifier).setOrigin(null);
-                  Navigator.of(context).pop();
-                },
-              ),
-            if (widget.forOrigin)
-              const Divider(height: 1, indent: 16, endIndent: 16),
             Expanded(
-              child: stations.isEmpty
-                  ? Center(
-                      child: Text(s.searchHint,
-                          style: const TextStyle(
-                              color: Color(0xFF8E8E93))))
-                  : ListView.builder(
-                      controller: scrollCtrl,
-                      itemCount: stations.length,
-                      itemBuilder: (_, i) => _StationResultTile(
-                        station: stations[i],
-                        forOrigin: widget.forOrigin,
+              child: ListView(
+                controller: scrollCtrl,
+                children: [
+                  // GPS (pour la recherche d'origine)
+                  if (widget.forOrigin) ...[
+                    ListTile(
+                      leading: Container(
+                        width: 36, height: 36,
+                        decoration: const BoxDecoration(color: AppColors.primary, shape: BoxShape.circle),
+                        child: const Icon(Icons.my_location, color: Colors.white, size: 18),
                       ),
+                      title: Text(s.myPosition, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                      subtitle: Text(s.fromLabel, style: const TextStyle(fontSize: 12, color: Color(0xFF8E8E93))),
+                      onTap: () {
+                        ref.read(mapProvider.notifier).setOrigin(null);
+                        Navigator.of(context).pop();
+                      },
                     ),
+                    const Divider(height: 1, indent: 16, endIndent: 16),
+                  ],
+
+                  // Historique récent (quand pas de recherche)
+                  if (_query.isEmpty && recent.isNotEmpty) ...[
+                    _SectionHeader(label: 'Récents', icon: Icons.history),
+                    ...recent.map((p) => _PlaceTile(
+                      place: p,
+                      isFavorite: favIds.contains(p.id),
+                      onTap: () => _selectPlace(p),
+                      onFavorite: () => ref.read(mapProvider.notifier).toggleFavorite(p.id),
+                    )),
+                    const Divider(height: 1, indent: 16, endIndent: 16),
+                  ],
+
+                  // Favoris (quand pas de recherche)
+                  if (_query.isEmpty && favIds.isNotEmpty) ...[
+                    _SectionHeader(label: 'Favoris', icon: Icons.favorite, iconColor: Colors.red),
+                    ...kPortAuPrincePlaces
+                        .where((p) => favIds.contains(p.id))
+                        .map((p) => _PlaceTile(
+                          place: p,
+                          isFavorite: true,
+                          onTap: () => _selectPlace(p),
+                          onFavorite: () => ref.read(mapProvider.notifier).toggleFavorite(p.id),
+                        )),
+                    const Divider(height: 1, indent: 16, endIndent: 16),
+                  ],
+
+                  // Tous les lieux (filtrés par recherche)
+                  _SectionHeader(
+                    label: _query.isEmpty ? 'Tous les lieux' : '${places.length} résultat(s)',
+                    icon: Icons.place_outlined,
+                  ),
+                  if (places.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.all(24),
+                      child: Center(child: Text('Aucun lieu trouvé', style: TextStyle(color: Color(0xFF8E8E93)))),
+                    )
+                  else
+                    ...places.map((p) => _PlaceTile(
+                      place: p,
+                      isFavorite: favIds.contains(p.id),
+                      onTap: () => _selectPlace(p),
+                      onFavorite: () => ref.read(mapProvider.notifier).toggleFavorite(p.id),
+                    )),
+
+                  const SizedBox(height: 16),
+                ],
+              ),
             ),
           ],
         ),
       ),
     );
   }
+
+  void _selectPlace(PlaceLocation place) {
+    if (widget.forOrigin) {
+      ref.read(mapProvider.notifier).setOrigin(place.coordinates);
+    } else {
+      ref.read(mapProvider.notifier).selectPlace(place);
+    }
+    Navigator.of(context).pop();
+  }
 }
+
+// ─── Section header ───────────────────────────────────────────────────────────
+
+class _SectionHeader extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final Color? iconColor;
+  const _SectionHeader({required this.label, required this.icon, this.iconColor});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+      child: Row(
+        children: [
+          Icon(icon, size: 14, color: iconColor ?? AppColors.textTertiary),
+          const SizedBox(width: 6),
+          Text(
+            label.toUpperCase(),
+            style: const TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: AppColors.textTertiary,
+              letterSpacing: 0.5,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Place tile ───────────────────────────────────────────────────────────────
+
+class _PlaceTile extends StatelessWidget {
+  final PlaceLocation place;
+  final bool isFavorite;
+  final VoidCallback onTap;
+  final VoidCallback onFavorite;
+  const _PlaceTile({
+    required this.place,
+    required this.isFavorite,
+    required this.onTap,
+    required this.onFavorite,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      leading: Container(
+        width: 36, height: 36,
+        decoration: BoxDecoration(
+          color: const Color(0xFFEEF2FF),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: const Icon(Icons.place, color: AppColors.primary, size: 18),
+      ),
+      title: Text(place.name, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+      subtitle: Text(place.zone, style: const TextStyle(fontSize: 12, color: Color(0xFF8E8E93))),
+      trailing: IconButton(
+        icon: Icon(
+          isFavorite ? Icons.favorite : Icons.favorite_border,
+          size: 18,
+          color: isFavorite ? Colors.red : const Color(0xFFCCCCCC),
+        ),
+        onPressed: onFavorite,
+      ),
+      onTap: onTap,
+    );
+  }
+}
+
+// ─── Station result tile (pour la recherche d'origine) ────────────────────────
 
 class _StationResultTile extends ConsumerWidget {
   final Station station;
   final bool forOrigin;
-  const _StationResultTile(
-      {required this.station, required this.forOrigin});
+  const _StationResultTile({required this.station, required this.forOrigin});
 
   Color get _typeColor => switch (station.type) {
         StationType.bus => AppColors.primary,
@@ -413,34 +532,18 @@ class _StationResultTile extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     return ListTile(
       leading: Container(
-        width: 36,
-        height: 36,
-        decoration: BoxDecoration(
-          color: _typeColor,
-          shape: BoxShape.circle,
-        ),
+        width: 36, height: 36,
+        decoration: BoxDecoration(color: _typeColor, shape: BoxShape.circle),
         child: Center(
-          child: Text(
-            station.typeInitial,
-            style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w700,
-                fontSize: 14),
-          ),
+          child: Text(station.typeInitial,
+              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 14)),
         ),
       ),
-      title: Text(station.name,
-          style:
-              const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-      subtitle: Text(station.typeLabel,
-          style: const TextStyle(
-              fontSize: 12, color: Color(0xFF8E8E93))),
+      title: Text(station.name, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+      subtitle: Text(station.typeLabel, style: const TextStyle(fontSize: 12, color: Color(0xFF8E8E93))),
       trailing: station.fareMin != null
-          ? Text(
-              '${station.fareMin}–${station.fareMax} HTG',
-              style: const TextStyle(
-                  fontSize: 11, color: Color(0xFF8E8E93)),
-            )
+          ? Text('${station.fareMin}–${station.fareMax} HTG',
+              style: const TextStyle(fontSize: 11, color: Color(0xFF8E8E93)))
           : null,
       onTap: () {
         final notifier = ref.read(mapProvider.notifier);
